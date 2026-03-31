@@ -92,14 +92,15 @@ object SocketManager {
             }
         }.build()
 
-        val opts = IO.Options.builder()
-            .setTransports(arrayOf("websocket"))
-            .setReconnection(true)
-            .setReconnectionAttempts(5)
-            .setReconnectionDelay(2000)
-            .setCallFactory(okHttpClient)
-            .setWebSocketFactory(okHttpClient)
-            .build()
+        // IO.Options direct-field assignment (socket.io-client 2.x)
+        val opts = IO.Options().apply {
+            transports = arrayOf("websocket")
+            reconnection = true
+            reconnectionAttempts = 5
+            reconnectionDelay = 2000
+            callFactory = okHttpClient
+            webSocketFactory = okHttpClient
+        }
 
         socket = IO.socket(URI.create(serverUrl), opts).also { s ->
             s.on(Socket.EVENT_CONNECT) {
