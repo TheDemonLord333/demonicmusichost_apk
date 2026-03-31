@@ -19,10 +19,14 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.demonicmusichost.app.R
 import com.demonicmusichost.app.data.PrefsManager
+import com.demonicmusichost.app.data.SocketManager
 import com.demonicmusichost.app.data.model.SessionState
 import com.demonicmusichost.app.data.model.Track
 import com.demonicmusichost.app.databinding.FragmentSessionBinding
@@ -33,7 +37,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.IOException
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -49,6 +52,10 @@ class SessionFragment : Fragment() {
     private val viewModel: SessionViewModel by viewModels()
     private lateinit var queueAdapter: QueueAdapter
     private lateinit var participantAdapter: ParticipantAdapter
+
+    // ExoPlayer for local-source tracks
+    private var player: ExoPlayer? = null
+    private var lastLocalTrackId: String? = null   // tracks which file is loaded
 
     private val httpClient: OkHttpClient by lazy {
         val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
@@ -78,10 +85,72 @@ class SessionFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        setupExoPlayer()
         setupAdapters()
         setupListeners()
         observeState()
     }
+
+    // ─── ExoPlayer ────────────────────────────────────────────────────────────────
+
+    private fun setupExoPlayer() {
+        player = ExoPlayer.Builder(requireContext()).build().also { p ->
+            p.addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_ENDED) {
+                        // Notify server so it can advance the queue
+                        SocketManager.reportTrackEnded()
+                    }
+                }
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    // Periodically report position to server for web-client sync
+                    if (isPlaying) startProgressReporting()
+                }
+            })
+        }
+    }
+
+    private var progressJob: kotlinx.coroutines.Job? = null
+
+    private fun startProgressReporting() {
+        progressJob?.cancel()
+        progressJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(2000)
+                val p = player ?: break
+                if (!p.isPlaying) break
+                SocketManager.reportProgress(p.currentPosition)
+            }
+        }
+    }
+
+    private fun handleLocalPlayback(state: SessionState) {
+        val currentTrack = state.queue.getOrNull(state.currentTrackIndex)
+        val p = player ?: return
+
+        if (currentTrack == null || currentTrack.source != "local") {
+            // Not a local track — stop local playback
+            if (p.isPlaying) p.stop()
+            lastLocalTrackId = null
+            return
+        }
+
+        // Load new track if changed
+        if (lastLocalTrackId != currentTrack.sourceId) {
+            lastLocalTrackId = currentTrack.sourceId
+            val streamUrl = "${SocketManager.getServerUrl()}${currentTrack.url}"
+            p.setMediaItem(MediaItem.fromUri(streamUrl))
+            p.prepare()
+        }
+
+        if (state.isPlaying && !p.isPlaying) {
+            p.play()
+        } else if (!state.isPlaying && p.isPlaying) {
+            p.pause()
+        }
+    }
+
+    // ─── Adapters ─────────────────────────────────────────────────────────────────
 
     private fun setupAdapters() {
         queueAdapter = QueueAdapter { index -> viewModel.removeTrack(index) }
@@ -105,6 +174,8 @@ class SessionFragment : Fragment() {
         }
     }
 
+    // ─── Listeners ────────────────────────────────────────────────────────────────
+
     private fun setupListeners() {
         binding.btnPlayPause.setOnClickListener {
             val state = viewModel.sessionState.value ?: return@setOnClickListener
@@ -118,6 +189,8 @@ class SessionFragment : Fragment() {
                 .setTitle(R.string.leave_session_title)
                 .setMessage(R.string.leave_session_message)
                 .setPositiveButton(R.string.leave) { _, _ ->
+                    player?.release()
+                    player = null
                     viewModel.leaveSession()
                     findNavController().navigate(R.id.action_session_to_home)
                 }
@@ -132,13 +205,11 @@ class SessionFragment : Fragment() {
             Toast.makeText(requireContext(), getString(R.string.code_copied, code), Toast.LENGTH_SHORT).show()
         }
 
-        // QR code button
         binding.btnShowQr.setOnClickListener {
             val code = viewModel.mySessionId.value ?: return@setOnClickListener
             showQrCodeDialog(code)
         }
 
-        // Add Song button
         binding.btnAddSong.setOnClickListener {
             AddSongBottomSheet().show(childFragmentManager, AddSongBottomSheet.TAG)
         }
@@ -157,11 +228,16 @@ class SessionFragment : Fragment() {
         }
     }
 
+    // ─── State observation ────────────────────────────────────────────────────────
+
     private fun observeState() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.sessionState.collect { state ->
-                    if (state != null) renderState(state)
+                    if (state != null) {
+                        handleLocalPlayback(state)
+                        renderState(state)
+                    }
                 }
             }
         }
@@ -173,7 +249,6 @@ class SessionFragment : Fragment() {
                     binding.layoutHostControls.isVisible = host
                     binding.layoutPlayback.isVisible = host
                     binding.layoutGuestInfo.isVisible = !host
-                    // Guests can add songs if allowGuestAdd is true (updated in renderState)
                 }
             }
         }
@@ -207,6 +282,8 @@ class SessionFragment : Fragment() {
         }
     }
 
+    // ─── Render ───────────────────────────────────────────────────────────────────
+
     private fun renderState(state: SessionState) {
         queueAdapter.currentTrackIndex = state.currentTrackIndex
         queueAdapter.submitList(state.queue)
@@ -216,7 +293,6 @@ class SessionFragment : Fragment() {
         binding.tvParticipantCount.text =
             getString(R.string.participant_count, state.participants.size)
 
-        // Show add song button: host always, guests only if allowGuestAdd
         val canAdd = viewModel.isHost.value || state.settings.allowGuestAdd
         binding.btnAddSong.isVisible = canAdd
 
@@ -244,10 +320,15 @@ class SessionFragment : Fragment() {
             if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
         )
 
+        // For local tracks, use ExoPlayer's position for smoother progress display
+        val displayPosition = if (currentTrack?.source == "local")
+            player?.currentPosition ?: state.position
+        else state.position
+
         if (currentTrack != null && currentTrack.duration > 0) {
-            val progress = ((state.position.toFloat() / currentTrack.duration) * 100).toInt()
+            val progress = ((displayPosition.toFloat() / currentTrack.duration) * 100).toInt()
             binding.progressPlayback.progress = progress.coerceIn(0, 100)
-            binding.tvProgressCurrent.text = formatMs(state.position)
+            binding.tvProgressCurrent.text = formatMs(displayPosition)
             binding.tvProgressTotal.text = formatMs(currentTrack.duration)
         } else {
             binding.progressPlayback.progress = 0
@@ -255,7 +336,6 @@ class SessionFragment : Fragment() {
             binding.tvProgressTotal.text = "0:00"
         }
 
-        // Host settings switches (without triggering listener loop)
         binding.switchAllowJoin.setOnCheckedChangeListener(null)
         binding.switchAllowAdd.setOnCheckedChangeListener(null)
         binding.switchAllowJoin.isChecked = state.settings.allowJoin
@@ -273,8 +353,8 @@ class SessionFragment : Fragment() {
     private fun showQrCodeDialog(sessionCode: String) {
         val dialogView = LayoutInflater.from(requireContext())
             .inflate(R.layout.dialog_qr_code, null)
-        val ivQr = dialogView.findViewById<ImageView>(R.id.ivQrCode)
-        val tvUrl = dialogView.findViewById<TextView>(R.id.tvQrUrl)
+        val ivQr     = dialogView.findViewById<ImageView>(R.id.ivQrCode)
+        val tvUrl    = dialogView.findViewById<TextView>(R.id.tvQrUrl)
         val tvLoading = dialogView.findViewById<TextView>(R.id.tvQrLoading)
 
         val dialog = AlertDialog.Builder(requireContext())
@@ -299,21 +379,27 @@ class SessionFragment : Fragment() {
                     tvLoading.text = getString(R.string.qr_load_error)
                     return@launch
                 }
-                val dataUrl = result.get("dataUrl")?.asString ?: ""
-                val joinUrl = result.get("joinUrl")?.asString ?: ""
-                val base64 = dataUrl.substringAfter("base64,")
-                val bytes = Base64.decode(base64, Base64.DEFAULT)
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                val dataUrl  = result.get("dataUrl")?.asString ?: ""
+                val joinUrl  = result.get("joinUrl")?.asString ?: ""
+                val base64   = dataUrl.substringAfter("base64,")
+                val bytes    = Base64.decode(base64, Base64.DEFAULT)
+                val bitmap   = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap == null) {
+                    tvLoading.text = getString(R.string.qr_load_error)
+                    return@launch
+                }
                 tvLoading.isVisible = false
                 ivQr.setImageBitmap(bitmap)
                 ivQr.isVisible = true
                 tvUrl.text = joinUrl
-                tvUrl.isVisible = true
-            } catch (e: IOException) {
+                tvUrl.isVisible = joinUrl.isNotBlank()
+            } catch (e: Exception) {          // catch ALL exceptions (JSON, Base64, IO…)
                 if (dialog.isShowing) tvLoading.text = getString(R.string.qr_load_error)
             }
         }
     }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────────
 
     private fun formatMs(ms: Long): String {
         val min = TimeUnit.MILLISECONDS.toMinutes(ms)
@@ -332,6 +418,9 @@ class SessionFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        progressJob?.cancel()
+        player?.release()
+        player = null
         super.onDestroyView()
         _binding = null
     }

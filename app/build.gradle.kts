@@ -78,4 +78,8 @@ dependencies {
 
     // Image loading
     implementation(libs.glide)
+
+    // Media playback (local files)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
 }

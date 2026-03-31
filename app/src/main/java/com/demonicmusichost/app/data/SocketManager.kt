@@ -143,7 +143,9 @@ object SocketManager {
             val sessionId = data.optString("sessionId")
             _mySessionId.tryEmit(sessionId)
             _isHost.tryEmit(true)
-            parseState(data.optJSONObject("state"))
+            val stateJson = data.optJSONObject("state")
+            if (stateJson != null) parseState(stateJson)
+            else _sessionState.tryEmit(SessionState()) // server may omit initial state
             Log.i(TAG, "Session created: $sessionId")
         }
 
@@ -152,7 +154,9 @@ object SocketManager {
             val sessionId = data.optString("sessionId")
             _mySessionId.tryEmit(sessionId)
             _isHost.tryEmit(false)
-            parseState(data.optJSONObject("state"))
+            val stateJson = data.optJSONObject("state")
+            if (stateJson != null) parseState(stateJson)
+            else _sessionState.tryEmit(SessionState())
             Log.i(TAG, "Session joined: $sessionId")
         }
 
