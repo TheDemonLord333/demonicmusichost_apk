@@ -3,6 +3,7 @@ package com.demonicmusichost.app.ui.session
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
@@ -11,6 +12,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
@@ -26,14 +28,18 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.tabs.TabLayout
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
 import okhttp3.Response
+import okio.BufferedSink
 import java.io.IOException
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
@@ -200,104 +206,102 @@ class AddSongBottomSheet : BottomSheetDialogFragment() {
 
     private fun uploadAndQueueLocalFile(uri: Uri) {
         val ctx = requireContext()
-
-        // Extract metadata before uploading
-        val retriever = MediaMetadataRetriever()
-        val title: String
-        val artist: String
-        val album: String
-        val duration: Long
-        val mimeType: String
-        val fileName: String
-        try {
-            retriever.setDataSource(ctx, uri)
-            title  = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                ?: (uri.lastPathSegment?.substringBeforeLast('.') ?: "Unknown")
-            artist   = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: ""
-            album    = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: ""
-            duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                ?.toLongOrNull() ?: 0L
-            mimeType = ctx.contentResolver.getType(uri) ?: "audio/mpeg"
-            val ext = mimeType.substringAfter('/').replace("mpeg", "mp3").take(5)
-            fileName = "${title.take(40)}.$ext"
-        } catch (e: Exception) {
-            Toast.makeText(ctx, getString(R.string.search_error, e.message), Toast.LENGTH_SHORT).show()
-            return
-        } finally {
-            retriever.release()
-        }
-
-        // Read file bytes
-        val bytes = try {
-            ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        } catch (e: Exception) { null }
-        if (bytes == null) {
-            Toast.makeText(ctx, getString(R.string.search_error, "Datei konnte nicht gelesen werden"), Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        // Show upload progress
         binding.progressSearch.isVisible = true
         binding.btnPickLocalFile.isEnabled = false
         binding.tvSearchError.isVisible = false
 
-        val serverUrl = PrefsManager.serverUrl
-        val requestBody = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart(
-                "audio", fileName,
-                bytes.toRequestBody(mimeType.toMediaTypeOrNull())
-            )
-            .build()
-        val request = Request.Builder()
-            .url("$serverUrl/upload")
-            .post(requestBody)
-            .build()
-
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                activity?.runOnUiThread {
-                    binding.progressSearch.isVisible = false
-                    binding.btnPickLocalFile.isEnabled = true
-                    binding.tvSearchError.isVisible = true
-                    binding.tvSearchError.text = getString(R.string.search_error, e.message)
-                }
-            }
-            override fun onResponse(call: Call, response: Response) {
-                val body = response.body?.string() ?: ""
-                activity?.runOnUiThread {
-                    binding.progressSearch.isVisible = false
-                    binding.btnPickLocalFile.isEnabled = true
-                    if (!response.isSuccessful) {
-                        binding.tvSearchError.isVisible = true
-                        binding.tvSearchError.text = getString(R.string.search_error, "Upload fehlgeschlagen (${response.code})")
-                        return@runOnUiThread
-                    }
+        // All heavy I/O runs on Dispatchers.IO — never blocks the main thread
+        lifecycleScope.launch {
+            try {
+                val track = withContext(Dispatchers.IO) {
+                    // 1. Extract audio metadata
+                    val retriever = MediaMetadataRetriever()
+                    val title: String; val artist: String
+                    val album: String; val duration: Long
+                    val mimeType: String; val fileName: String
                     try {
-                        val json = Gson().fromJson(body, JsonObject::class.java)
-                        val fileId = json.get("fileId")?.asString
-                            ?: throw IllegalStateException("Keine fileId in Serverantwort")
-                        val track = Track(
-                            id        = fileId,
-                            title     = title,
-                            artist    = artist,
-                            album     = album,
-                            duration  = duration,
-                            source    = "local",
-                            sourceId  = fileId,
-                            url       = "/upload/stream/$fileId"
-                        )
-                        SocketManager.queueAdd(track)
-                        Toast.makeText(requireContext(),
-                            getString(R.string.track_added, title), Toast.LENGTH_SHORT).show()
-                        dismiss()
-                    } catch (e: Exception) {
-                        binding.tvSearchError.isVisible = true
-                        binding.tvSearchError.text = getString(R.string.search_error, e.message)
+                        retriever.setDataSource(ctx, uri)
+                        title    = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                                   ?: (uri.lastPathSegment?.substringBeforeLast('.') ?: "Unknown")
+                        artist   = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: ""
+                        album    = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: ""
+                        duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                   ?.toLongOrNull() ?: 0L
+                        mimeType = ctx.contentResolver.getType(uri) ?: "audio/mpeg"
+                        val ext  = mimeType.substringAfter('/').replace("mpeg", "mp3").take(5)
+                        fileName = "${title.take(40)}.$ext"
+                    } finally {
+                        retriever.release()
                     }
+
+                    // 2. Get file size (for Content-Length header, avoids chunked encoding)
+                    val fileSize = ctx.contentResolver
+                        .query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)
+                        ?.use { c -> if (c.moveToFirst()) c.getLong(0) else -1L } ?: -1L
+
+                    // 3. Streaming multipart body — reads in 8 KB chunks, never loads
+                    //    the full file into memory
+                    val resolver = ctx.contentResolver
+                    val streamBody = object : RequestBody() {
+                        override fun contentType() = mimeType.toMediaTypeOrNull()
+                        override fun contentLength() = fileSize
+                        override fun writeTo(sink: BufferedSink) {
+                            resolver.openInputStream(uri)?.use { input ->
+                                val buf = ByteArray(8192)
+                                var n: Int
+                                while (input.read(buf).also { n = it } != -1)
+                                    sink.write(buf, 0, n)
+                            }
+                        }
+                    }
+
+                    val multipart = MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
+                        .addFormDataPart("audio", fileName, streamBody)
+                        .build()
+
+                    val request = Request.Builder()
+                        .url("${PrefsManager.serverUrl}/upload")
+                        .post(multipart)
+                        .build()
+
+                    // 4. Synchronous HTTP call (we're on IO thread inside withContext)
+                    val response = httpClient.newCall(request).execute()
+                    val body = response.body?.string() ?: throw IOException("Leere Serverantwort")
+                    if (!response.isSuccessful)
+                        throw IOException("Upload fehlgeschlagen (${response.code})")
+
+                    val json   = Gson().fromJson(body, JsonObject::class.java)
+                    val fileId = json.get("fileId")?.asString
+                               ?: throw IOException("Keine fileId in Serverantwort")
+
+                    Track(
+                        id          = fileId,
+                        title       = title,
+                        artist      = artist,
+                        album       = album,
+                        duration    = duration,
+                        source      = "local",
+                        sourceId    = fileId,
+                        localFileId = fileId,
+                        url         = "/upload/stream/$fileId"
+                    )
                 }
+
+                // Back on main thread
+                SocketManager.queueAdd(track)
+                Toast.makeText(requireContext(),
+                    getString(R.string.track_added, track.title), Toast.LENGTH_SHORT).show()
+                dismiss()
+
+            } catch (e: Exception) {
+                binding.tvSearchError.text = getString(R.string.search_error, e.message)
+                binding.tvSearchError.isVisible = true
+            } finally {
+                binding.progressSearch.isVisible = false
+                binding.btnPickLocalFile.isEnabled = true
             }
-        })
+        }
     }
 
     private fun encode(s: String) = java.net.URLEncoder.encode(s, "UTF-8")

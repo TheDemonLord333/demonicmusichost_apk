@@ -20,6 +20,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.navigation.fragment.findNavController
@@ -33,6 +34,8 @@ import com.demonicmusichost.app.databinding.FragmentSessionBinding
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -53,9 +56,18 @@ class SessionFragment : Fragment() {
     private lateinit var queueAdapter: QueueAdapter
     private lateinit var participantAdapter: ParticipantAdapter
 
-    // ExoPlayer for local-source tracks
+    // ── ExoPlayer (host audio playback) ───────────────────────────────────────
     private var player: ExoPlayer? = null
-    private var lastLocalTrackId: String? = null   // tracks which file is loaded
+    private var lastPlayingTrackId: String? = null   // "source:id" of the loaded track
+    private var progressJob: Job? = null
+    private var youtubeLoadJob: Job? = null
+
+    // Piped API instances (free YouTube audio extraction, no API key)
+    private val PIPED_INSTANCES = listOf(
+        "https://pipedapi.kavin.rocks",
+        "https://piped-api.garudalinux.org",
+        "https://api.piped.yt"
+    )
 
     private val httpClient: OkHttpClient by lazy {
         val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
@@ -76,6 +88,10 @@ class SessionFragment : Fragment() {
         }.build()
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Lifecycle
+    // ─────────────────────────────────────────────────────────────────────────
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
@@ -93,32 +109,54 @@ class SessionFragment : Fragment() {
         observeState()
     }
 
-    // ─── ExoPlayer ────────────────────────────────────────────────────────────────
+    override fun onDestroyView() {
+        progressJob?.cancel()
+        youtubeLoadJob?.cancel()
+        player?.release()
+        player = null
+        super.onDestroyView()
+        _binding = null
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ExoPlayer
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun setupExoPlayer() {
         player = ExoPlayer.Builder(requireContext()).build().also { p ->
             p.addListener(object : Player.Listener {
+
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_ENDED) {
-                        // Notify server so it can advance the queue
                         SocketManager.reportTrackEnded()
                     }
                 }
+
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    // Periodically report position to server for web-client sync
-                    if (isPlaying) startProgressReporting()
+                    if (isPlaying) startProgressReporting() else progressJob?.cancel()
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    val msg = when {
+                        lastPlayingTrackId?.startsWith("spotify") == true ->
+                            "Spotify: Vorschau nicht verfügbar. Bitte im Browser abspielen."
+                        lastPlayingTrackId?.startsWith("youtube") == true ->
+                            "YouTube-Stream konnte nicht geladen werden."
+                        else -> "Wiedergabefehler: ${error.message}"
+                    }
+                    view?.post {
+                        Toast.makeText(requireContext(), msg, Toast.LENGTH_LONG).show()
+                    }
                 }
             })
         }
     }
 
-    private var progressJob: kotlinx.coroutines.Job? = null
-
     private fun startProgressReporting() {
         progressJob?.cancel()
         progressJob = viewLifecycleOwner.lifecycleScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(2000)
+                delay(2000)
                 val p = player ?: break
                 if (!p.isPlaying) break
                 SocketManager.reportProgress(p.currentPosition)
@@ -126,33 +164,128 @@ class SessionFragment : Fragment() {
         }
     }
 
-    private fun handleLocalPlayback(state: SessionState) {
-        val currentTrack = state.queue.getOrNull(state.currentTrackIndex)
-        val p = player ?: return
-
-        if (currentTrack == null || currentTrack.source != "local") {
-            // Not a local track — stop local playback
-            if (p.isPlaying) p.stop()
-            lastLocalTrackId = null
+    /**
+     * Called whenever sessionState changes.
+     * Only active when this client is the HOST — guests receive audio via the
+     * server's playback_updated events and are not responsible for sound output.
+     */
+    private fun handleHostPlayback(state: SessionState) {
+        if (!viewModel.isHost.value) {
+            // Not the host — stop any local playback silently
+            player?.let { if (it.isPlaying) it.pause() }
             return
         }
 
-        // Load new track if changed
-        if (lastLocalTrackId != currentTrack.sourceId) {
-            lastLocalTrackId = currentTrack.sourceId
-            val streamUrl = "${SocketManager.getServerUrl()}${currentTrack.url}"
-            p.setMediaItem(MediaItem.fromUri(streamUrl))
-            p.prepare()
+        val currentTrack = state.queue.getOrNull(state.currentTrackIndex)
+        val p = player ?: return
+
+        if (currentTrack == null) {
+            if (p.isPlaying) p.stop()
+            lastPlayingTrackId = null
+            return
         }
 
-        if (state.isPlaying && !p.isPlaying) {
-            p.play()
-        } else if (!state.isPlaying && p.isPlaying) {
-            p.pause()
+        val trackKey = "${currentTrack.source}:${currentTrack.id}"
+
+        if (lastPlayingTrackId != trackKey) {
+            // New track — determine stream URL and load it
+            lastPlayingTrackId = trackKey
+            youtubeLoadJob?.cancel()
+
+            when (currentTrack.source) {
+                "local" -> {
+                    // Stream from the DMH server's upload endpoint
+                    val fileId = currentTrack.localFileId
+                        ?: currentTrack.url.substringAfterLast('/')
+                    val url = "${SocketManager.getServerUrl()}/upload/stream/$fileId"
+                    loadMedia(p, url, state.isPlaying)
+                }
+
+                "spotify" -> {
+                    // Use the 30-second Spotify preview URL (free, no SDK needed).
+                    // Full playback requires the Spotify SDK — users can use the browser.
+                    val preview = currentTrack.previewUrl
+                    if (!preview.isNullOrBlank()) {
+                        loadMedia(p, preview, state.isPlaying)
+                    } else {
+                        Toast.makeText(
+                            requireContext(),
+                            "Spotify: keine Vorschau für diesen Track. Bitte im Browser abspielen.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+
+                "youtube" -> {
+                    // Fetch a direct audio stream URL from the Piped API
+                    // (free, open-source YouTube front-end, no API key needed)
+                    val videoId = currentTrack.youtubeId ?: currentTrack.sourceId
+                    if (videoId.isNotBlank()) {
+                        youtubeLoadJob = viewLifecycleOwner.lifecycleScope.launch {
+                            val streamUrl = fetchYouTubeStream(videoId)
+                            if (streamUrl != null) {
+                                loadMedia(p, streamUrl, state.isPlaying)
+                            } else {
+                                lastPlayingTrackId = null   // allow retry on next state change
+                                Toast.makeText(
+                                    requireContext(),
+                                    "YouTube-Stream konnte nicht geladen werden.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                    return  // play/pause handled after stream URL is loaded
+                }
+            }
+            return
         }
+
+        // Same track — sync play/pause state
+        if (state.isPlaying && !p.isPlaying) p.play()
+        else if (!state.isPlaying && p.isPlaying) p.pause()
     }
 
-    // ─── Adapters ─────────────────────────────────────────────────────────────────
+    private fun loadMedia(p: ExoPlayer, url: String, shouldPlay: Boolean) {
+        p.setMediaItem(MediaItem.fromUri(url))
+        p.prepare()
+        if (shouldPlay) p.play()
+    }
+
+    /** Tries each Piped instance in order, returns the best audio stream URL or null. */
+    private suspend fun fetchYouTubeStream(videoId: String): String? =
+        withContext(Dispatchers.IO) {
+            for (instance in PIPED_INSTANCES) {
+                try {
+                    val request = Request.Builder()
+                        .url("$instance/streams/$videoId")
+                        .build()
+                    val body = httpClient.newCall(request).execute().use { r ->
+                        if (!r.isSuccessful) return@use null
+                        r.body?.string()
+                    } ?: continue
+
+                    val json = Gson().fromJson(body, JsonObject::class.java)
+                    val streams = json.getAsJsonArray("audioStreams") ?: continue
+
+                    // Pick the highest-bitrate stream
+                    var bestUrl: String? = null
+                    var bestBitrate = 0
+                    for (i in 0 until streams.size()) {
+                        val s = streams[i].asJsonObject
+                        val bitrate = s.get("bitrate")?.asInt ?: 0
+                        val url = s.get("url")?.asString ?: continue
+                        if (bitrate > bestBitrate) { bestBitrate = bitrate; bestUrl = url }
+                    }
+                    if (bestUrl != null) return@withContext bestUrl
+                } catch (_: Exception) { /* try next instance */ }
+            }
+            null
+        }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Adapters
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun setupAdapters() {
         queueAdapter = QueueAdapter { index -> viewModel.removeTrack(index) }
@@ -165,7 +298,9 @@ class SessionFragment : Fragment() {
                 AlertDialog.Builder(requireContext())
                     .setTitle(R.string.kick_confirm_title)
                     .setMessage(getString(R.string.kick_confirm_message, participant.username))
-                    .setPositiveButton(R.string.kick) { _, _ -> viewModel.kickParticipant(participant.socketId) }
+                    .setPositiveButton(R.string.kick) { _, _ ->
+                        viewModel.kickParticipant(participant.socketId)
+                    }
                     .setNegativeButton(R.string.cancel, null)
                     .show()
             }
@@ -176,7 +311,9 @@ class SessionFragment : Fragment() {
         }
     }
 
-    // ─── Listeners ────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // Listeners
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun setupListeners() {
         binding.btnPlayPause.setOnClickListener {
@@ -191,8 +328,7 @@ class SessionFragment : Fragment() {
                 .setTitle(R.string.leave_session_title)
                 .setMessage(R.string.leave_session_message)
                 .setPositiveButton(R.string.leave) { _, _ ->
-                    player?.release()
-                    player = null
+                    player?.release(); player = null
                     viewModel.leaveSession()
                     findNavController().navigate(R.id.action_session_to_home)
                 }
@@ -202,8 +338,8 @@ class SessionFragment : Fragment() {
 
         binding.btnCopyCode.setOnClickListener {
             val code = viewModel.mySessionId.value ?: return@setOnClickListener
-            val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("Session Code", code))
+            val clip = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clip.setPrimaryClip(ClipData.newPlainText("Session Code", code))
             Toast.makeText(requireContext(), getString(R.string.code_copied, code), Toast.LENGTH_SHORT).show()
         }
 
@@ -225,19 +361,20 @@ class SessionFragment : Fragment() {
 
         binding.btnOpenWeb.setOnClickListener {
             val code = viewModel.mySessionId.value ?: return@setOnClickListener
-            val url = "${viewModel.getServerUrl()}/?code=$code"
-            openInBrowser(url)
+            openInBrowser("${viewModel.getServerUrl()}/?code=$code")
         }
     }
 
-    // ─── State observation ────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // State observation
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun observeState() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.sessionState.collect { state ->
                     if (state != null) {
-                        handleLocalPlayback(state)
+                        handleHostPlayback(state)
                         renderState(state)
                     }
                 }
@@ -256,9 +393,7 @@ class SessionFragment : Fragment() {
         }
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.mySessionId.collect { id ->
-                    binding.tvSessionCode.text = id ?: "—"
-                }
+                viewModel.mySessionId.collect { id -> binding.tvSessionCode.text = id ?: "—" }
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -284,7 +419,9 @@ class SessionFragment : Fragment() {
         }
     }
 
-    // ─── Render ───────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // Render
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun renderState(state: SessionState) {
         queueAdapter.currentTrackIndex = state.currentTrackIndex
@@ -322,15 +459,15 @@ class SessionFragment : Fragment() {
             if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
         )
 
-        // For local tracks, use ExoPlayer's position for smoother progress display
-        val displayPosition = if (currentTrack?.source == "local")
+        // Show ExoPlayer's live position for local tracks; server-reported position otherwise
+        val displayPos = if (currentTrack?.source == "local")
             player?.currentPosition ?: state.position
         else state.position
 
         if (currentTrack != null && currentTrack.duration > 0) {
-            val progress = ((displayPosition.toFloat() / currentTrack.duration) * 100).toInt()
-            binding.progressPlayback.progress = progress.coerceIn(0, 100)
-            binding.tvProgressCurrent.text = formatMs(displayPosition)
+            val pct = ((displayPos.toFloat() / currentTrack.duration) * 100).toInt()
+            binding.progressPlayback.progress = pct.coerceIn(0, 100)
+            binding.tvProgressCurrent.text = formatMs(displayPos)
             binding.tvProgressTotal.text = formatMs(currentTrack.duration)
         } else {
             binding.progressPlayback.progress = 0
@@ -342,21 +479,23 @@ class SessionFragment : Fragment() {
         binding.switchAllowAdd.setOnCheckedChangeListener(null)
         binding.switchAllowJoin.isChecked = state.settings.allowJoin
         binding.switchAllowAdd.isChecked = state.settings.allowGuestAdd
-        binding.switchAllowJoin.setOnCheckedChangeListener { _, checked ->
-            if (viewModel.isHost.value) viewModel.updateAllowJoin(checked)
+        binding.switchAllowJoin.setOnCheckedChangeListener { _, c ->
+            if (viewModel.isHost.value) viewModel.updateAllowJoin(c)
         }
-        binding.switchAllowAdd.setOnCheckedChangeListener { _, checked ->
-            if (viewModel.isHost.value) viewModel.updateAllowGuestAdd(checked)
+        binding.switchAllowAdd.setOnCheckedChangeListener { _, c ->
+            if (viewModel.isHost.value) viewModel.updateAllowGuestAdd(c)
         }
     }
 
-    // ─── QR Code Dialog ───────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // QR Code Dialog
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun showQrCodeDialog(sessionCode: String) {
         val dialogView = LayoutInflater.from(requireContext())
             .inflate(R.layout.dialog_qr_code, null)
-        val ivQr     = dialogView.findViewById<ImageView>(R.id.ivQrCode)
-        val tvUrl    = dialogView.findViewById<TextView>(R.id.tvQrUrl)
+        val ivQr      = dialogView.findViewById<ImageView>(R.id.ivQrCode)
+        val tvUrl     = dialogView.findViewById<TextView>(R.id.tvQrUrl)
         val tvLoading = dialogView.findViewById<TextView>(R.id.tvQrLoading)
 
         val dialog = AlertDialog.Builder(requireContext())
@@ -369,39 +508,31 @@ class SessionFragment : Fragment() {
             try {
                 val result = withContext(Dispatchers.IO) {
                     val url = "${PrefsManager.serverUrl}/api/session/$sessionCode/qr"
-                    val request = Request.Builder().url(url).build()
-                    httpClient.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) return@use null
-                        val body = response.body?.string() ?: return@use null
+                    httpClient.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                        if (!r.isSuccessful) return@use null
+                        val body = r.body?.string() ?: return@use null
                         Gson().fromJson(body, JsonObject::class.java)
                     }
                 }
                 if (!dialog.isShowing) return@launch
-                if (result == null) {
-                    tvLoading.text = getString(R.string.qr_load_error)
-                    return@launch
-                }
-                val dataUrl  = result.get("dataUrl")?.asString ?: ""
-                val joinUrl  = result.get("joinUrl")?.asString ?: ""
-                val base64   = dataUrl.substringAfter("base64,")
-                val bytes    = Base64.decode(base64, Base64.DEFAULT)
-                val bitmap   = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bitmap == null) {
-                    tvLoading.text = getString(R.string.qr_load_error)
-                    return@launch
-                }
+                if (result == null) { tvLoading.text = getString(R.string.qr_load_error); return@launch }
+                val dataUrl = result.get("dataUrl")?.asString ?: ""
+                val joinUrl = result.get("joinUrl")?.asString ?: ""
+                val bytes   = Base64.decode(dataUrl.substringAfter("base64,"), Base64.DEFAULT)
+                val bitmap  = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: run { tvLoading.text = getString(R.string.qr_load_error); return@launch }
                 tvLoading.isVisible = false
-                ivQr.setImageBitmap(bitmap)
-                ivQr.isVisible = true
-                tvUrl.text = joinUrl
-                tvUrl.isVisible = joinUrl.isNotBlank()
-            } catch (e: Exception) {          // catch ALL exceptions (JSON, Base64, IO…)
+                ivQr.setImageBitmap(bitmap); ivQr.isVisible = true
+                tvUrl.text = joinUrl; tvUrl.isVisible = joinUrl.isNotBlank()
+            } catch (e: Exception) {
                 if (dialog.isShowing) tvLoading.text = getString(R.string.qr_load_error)
             }
         }
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun formatMs(ms: Long): String {
         val min = TimeUnit.MILLISECONDS.toMinutes(ms)
@@ -417,13 +548,5 @@ class SessionFragment : Fragment() {
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "Browser nicht gefunden.", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    override fun onDestroyView() {
-        progressJob?.cancel()
-        player?.release()
-        player = null
-        super.onDestroyView()
-        _binding = null
     }
 }
