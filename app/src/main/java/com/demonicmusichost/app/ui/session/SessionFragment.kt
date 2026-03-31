@@ -56,11 +56,14 @@ class SessionFragment : Fragment() {
     private lateinit var queueAdapter: QueueAdapter
     private lateinit var participantAdapter: ParticipantAdapter
 
-    // ── ExoPlayer (host audio playback) ───────────────────────────────────────
+    // ── ExoPlayer (local + YouTube host audio playback) ───────────────────────
     private var player: ExoPlayer? = null
     private var lastPlayingTrackId: String? = null   // "source:id" of the loaded track
     private var progressJob: Job? = null
     private var youtubeLoadJob: Job? = null
+
+    // ── Spotify Web Playback SDK (full-track, Spotify Premium required) ────────
+    private var spotifyPlayer: SpotifyWebPlayer? = null
 
     // Piped API instances (free YouTube audio extraction, no API key)
     private val PIPED_INSTANCES = listOf(
@@ -104,6 +107,7 @@ class SessionFragment : Fragment() {
         try { setupExoPlayer() } catch (e: Exception) {
             android.util.Log.e("SessionFragment", "ExoPlayer init failed: ${e.message}")
         }
+        setupSpotifyPlayer()
         setupAdapters()
         setupListeners()
         observeState()
@@ -114,6 +118,8 @@ class SessionFragment : Fragment() {
         youtubeLoadJob?.cancel()
         player?.release()
         player = null
+        spotifyPlayer?.release()
+        spotifyPlayer = null
         super.onDestroyView()
         _binding = null
     }
@@ -138,8 +144,6 @@ class SessionFragment : Fragment() {
 
                 override fun onPlayerError(error: PlaybackException) {
                     val msg = when {
-                        lastPlayingTrackId?.startsWith("spotify") == true ->
-                            "Spotify: Vorschau nicht verfügbar. Bitte im Browser abspielen."
                         lastPlayingTrackId?.startsWith("youtube") == true ->
                             "YouTube-Stream konnte nicht geladen werden."
                         else -> "Wiedergabefehler: ${error.message}"
@@ -150,6 +154,24 @@ class SessionFragment : Fragment() {
                 }
             })
         }
+    }
+
+    private fun setupSpotifyPlayer() {
+        spotifyPlayer = SpotifyWebPlayer(
+            context = requireContext(),
+            onReady = {
+                android.util.Log.i("SessionFragment", "Spotify SDK ready")
+            },
+            onError = { msg ->
+                Toast.makeText(requireContext(), "Spotify: $msg", Toast.LENGTH_LONG).show()
+            },
+            onProgressUpdate = { positionMs ->
+                SocketManager.reportProgress(positionMs)
+            },
+            onTrackEnded = {
+                SocketManager.reportTrackEnded()
+            }
+        ).also { it.init() }
     }
 
     private fun startProgressReporting() {
@@ -202,17 +224,26 @@ class SessionFragment : Fragment() {
                 }
 
                 "spotify" -> {
-                    // Use the 30-second Spotify preview URL (free, no SDK needed).
-                    // Full playback requires the Spotify SDK — users can use the browser.
-                    val preview = currentTrack.previewUrl
-                    if (!preview.isNullOrBlank()) {
-                        loadMedia(p, preview, state.isPlaying)
+                    // Full-track playback via Spotify Web Playback SDK (Spotify Premium required).
+                    // The SDK runs in a hidden WebView; we send a play command via the Web API.
+                    val sp = spotifyPlayer
+                    val uri = currentTrack.spotifyUri
+                    if (sp != null && !uri.isNullOrBlank()) {
+                        // Stop ExoPlayer if it was playing something before
+                        if (p.isPlaying) p.stop()
+                        sp.playUri(uri)
                     } else {
-                        Toast.makeText(
-                            requireContext(),
-                            "Spotify: keine Vorschau für diesen Track. Bitte im Browser abspielen.",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        // Fallback: 30-second preview if no SDK or no URI
+                        val preview = currentTrack.previewUrl
+                        if (!preview.isNullOrBlank()) {
+                            loadMedia(p, preview, state.isPlaying)
+                        } else {
+                            Toast.makeText(
+                                requireContext(),
+                                "Spotify: Track kann nicht abgespielt werden.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 }
 
@@ -242,8 +273,13 @@ class SessionFragment : Fragment() {
         }
 
         // Same track — sync play/pause state
-        if (state.isPlaying && !p.isPlaying) p.play()
-        else if (!state.isPlaying && p.isPlaying) p.pause()
+        if (currentTrack.source == "spotify") {
+            val sp = spotifyPlayer ?: return
+            if (state.isPlaying) sp.resume() else sp.pause()
+        } else {
+            if (state.isPlaying && !p.isPlaying) p.play()
+            else if (!state.isPlaying && p.isPlaying) p.pause()
+        }
     }
 
     private fun loadMedia(p: ExoPlayer, url: String, shouldPlay: Boolean) {
