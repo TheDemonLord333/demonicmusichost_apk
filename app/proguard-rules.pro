@@ -1,0 +1,3 @@
+-keep class io.socket.** { *; }
+-keep class com.google.gson.** { *; }
+-keep class com.demonicmusichost.app.data.model.** { *; }

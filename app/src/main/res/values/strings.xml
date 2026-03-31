@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DemonicMusicHost</string>
+
+    <!-- Home -->
+    <string name="hint_username">Dein Name</string>
+    <string name="hint_session_code">Session-Code (DMH-XXXXXX)</string>
+    <string name="btn_create_session">Session starten</string>
+    <string name="btn_join_session">Beitreten</string>
+    <string name="btn_scan_qr">QR-Code scannen</string>
+    <string name="qr_hint_below_field">📷  QR-Code mit der Android App scannen</string>
+    <string name="server_label">Server: %1$s</string>
+    <string name="server_settings_title">Server-Einstellungen</string>
+    <string name="server_settings_message">Gib die URL deines DMH-Servers ein (z.B. https://yourserver.com)</string>
+    <string name="save">Speichern</string>
+    <string name="cancel">Abbrechen</string>
+
+    <!-- QR Scanner -->
+    <string name="qr_scan_prompt">QR-Code einer DMH-Session scannen</string>
+    <string name="qr_code_scanned">Code erkannt: %1$s</string>
+    <string name="qr_invalid">Kein gültiger DMH-Session-Code gefunden.</string>
+
+    <!-- Session -->
+    <string name="now_playing">Now Playing</string>
+    <string name="no_track">Kein Song</string>
+    <string name="queue">Warteschlange</string>
+    <string name="queue_empty">Warteschlange ist leer.</string>
+    <string name="participants">Teilnehmer</string>
+    <string name="participant_count">Teilnehmer (%1$d)</string>
+    <string name="session_settings">Session-Einstellungen</string>
+    <string name="allow_join">Beitritt erlauben</string>
+    <string name="allow_guest_add">Gäste dürfen hinzufügen</string>
+    <string name="btn_leave">Verlassen</string>
+    <string name="btn_copy_code">Code kopieren</string>
+    <string name="code_copied">Code kopiert: %1$s</string>
+    <string name="open_in_browser">Browser</string>
+    <string name="reconnecting">Verbindung wird wiederhergestellt…</string>
+    <string name="guest_mode_hint">Gast — Host steuert die Wiedergabe</string>
+
+    <!-- Playback -->
+    <string name="play_pause">Abspielen / Pausieren</string>
+    <string name="prev">Vorheriger Track</string>
+    <string name="next">Nächster Track</string>
+
+    <!-- Queue item -->
+    <string name="added_by">von %1$s</string>
+    <string name="remove_track">Track entfernen</string>
+
+    <!-- Participant item -->
+    <string name="host_label">HOST</string>
+    <string name="guest_label">Gast</string>
+    <string name="kick">Rauswerfen</string>
+    <string name="kick_confirm_title">Teilnehmer rauswerfen?</string>
+    <string name="kick_confirm_message">%1$s wirklich aus der Session entfernen?</string>
+
+    <!-- Leave dialog -->
+    <string name="leave_session_title">Session verlassen?</string>
+    <string name="leave_session_message">Du wirst die aktuelle Session verlassen.</string>
+    <string name="leave">Verlassen</string>
+</resources>

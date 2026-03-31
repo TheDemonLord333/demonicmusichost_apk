@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dmh_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:gravity="center_horizontal">
+
+        <!-- Logo -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="DMH"
+            android:textSize="48sp"
+            android:textColor="@color/dmh_accent"
+            android:fontFamily="serif"
+            android:letterSpacing="0.15"
+            android:layout_marginTop="32dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="DemonicMusicHost"
+            android:textSize="16sp"
+            android:textColor="@color/dmh_text_secondary"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvServerUrl"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Server: —"
+            android:textSize="11sp"
+            android:textColor="@color/dmh_text_hint"
+            android:layout_marginBottom="4dp" />
+
+        <Button
+            android:id="@+id/btnServerSettings"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/server_settings_title"
+            android:textColor="@color/dmh_text_secondary"
+            android:textSize="12sp"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Create Session Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="@color/dmh_surface"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔥  Session erstellen"
+                    android:textSize="18sp"
+                    android:textColor="@color/dmh_text_primary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Starte eine neue Musik-Session und lade Freunde ein."
+                    android:textSize="13sp"
+                    android:textColor="@color/dmh_text_secondary"
+                    android:layout_marginBottom="16dp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:hint="@string/hint_username"
+                    app:boxStrokeColor="@color/dmh_accent"
+                    android:layout_marginBottom="12dp">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etCreateUsername"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textPersonName"
+                        android:maxLength="24"
+                        android:textColor="@color/dmh_text_primary" />
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <Button
+                    android:id="@+id/btnCreateSession"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/btn_create_session"
+                    android:backgroundTint="@color/dmh_accent"
+                    android:textColor="@color/white" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Divider -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="— oder —"
+            android:textColor="@color/dmh_text_hint"
+            android:textSize="13sp"
+            android:layout_marginVertical="8dp" />
+
+        <!-- Join Session Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="@color/dmh_surface"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="4dp"
+            android:layout_marginBottom="24dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="👥  Session beitreten"
+                    android:textSize="18sp"
+                    android:textColor="@color/dmh_text_primary"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Tritt einer bestehenden Session mit dem Code bei."
+                    android:textSize="13sp"
+                    android:textColor="@color/dmh_text_secondary"
+                    android:layout_marginBottom="16dp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:hint="@string/hint_username"
+                    app:boxStrokeColor="@color/dmh_accent"
+                    android:layout_marginBottom="12dp">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etJoinUsername"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textPersonName"
+                        android:maxLength="24"
+                        android:textColor="@color/dmh_text_primary" />
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- Session Code row: field + QR scan button -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:hint="@string/hint_session_code"
+                        app:boxStrokeColor="@color/dmh_accent">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etSessionCode"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textCapCharacters"
+                            android:maxLength="10"
+                            android:textAllCaps="true"
+                            android:letterSpacing="0.15"
+                            android:textColor="@color/dmh_text_primary" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <!-- QR Scan button -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnScanQr"
+                        style="@style/Widget.Material3.Button.IconButton.Outlined"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:layout_marginStart="8dp"
+                        app:icon="@drawable/ic_qr_scan"
+                        app:iconTint="@color/dmh_accent"
+                        android:contentDescription="@string/btn_scan_qr"
+                        app:strokeColor="@color/dmh_accent" />
+
+                </LinearLayout>
+
+                <!-- Hint text under QR button -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/qr_hint_below_field"
+                    android:textSize="11sp"
+                    android:textColor="@color/dmh_text_hint"
+                    android:drawablePadding="4dp"
+                    android:layout_marginBottom="12dp"
+                    android:gravity="center_vertical" />
+
+                <Button
+                    android:id="@+id/btnJoinSession"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/btn_join_session"
+                    android:backgroundTint="@color/dmh_surface_variant"
+                    android:textColor="@color/dmh_text_primary" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Progress -->
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:indeterminateTint="@color/dmh_accent" />
+
+    </LinearLayout>
+</ScrollView>

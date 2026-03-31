@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingVertical="8dp"
+    android:paddingHorizontal="4dp">
+
+    <!-- Source dot -->
+    <View
+        android:id="@+id/viewSourceDot"
+        android:layout_width="4dp"
+        android:layout_height="40dp"
+        android:background="@color/dmh_accent"
+        android:layout_marginEnd="8dp" />
+
+    <!-- Thumbnail -->
+    <ImageView
+        android:id="@+id/ivThumbnail"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:scaleType="centerCrop"
+        android:src="@drawable/ic_music_note"
+        android:background="@color/dmh_surface_variant"
+        android:layout_marginEnd="12dp" />
+
+    <!-- Now playing indicator -->
+    <ImageView
+        android:id="@+id/ivNowPlaying"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:src="@drawable/ic_play"
+        android:visibility="gone"
+        app:tint="@color/dmh_accent"
+        android:layout_marginEnd="4dp" />
+
+    <!-- Track info -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvTrackTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/dmh_text_primary"
+            android:textSize="14sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvTrackArtist"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/dmh_text_secondary"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/tvDuration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/dmh_text_hint"
+                android:textSize="11sp"
+                android:layout_marginStart="4dp" />
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvAddedBy"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/dmh_text_hint"
+            android:textSize="10sp" />
+
+    </LinearLayout>
+
+    <!-- Remove button (host only) -->
+    <ImageButton
+        android:id="@+id/btnRemove"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:src="@drawable/ic_remove"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/remove_track"
+        android:visibility="gone"
+        app:tint="@color/dmh_text_hint" />
+
+</LinearLayout>

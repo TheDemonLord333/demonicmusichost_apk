@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DMH Dark Theme palette (mirrors the web app) -->
+    <color name="dmh_bg">#0E0D14</color>
+    <color name="dmh_surface">#1A1825</color>
+    <color name="dmh_surface_variant">#26243A</color>
+    <color name="dmh_accent">#8B0000</color>
+    <color name="dmh_accent_light">#CC0000</color>
+    <color name="dmh_text_primary">#F0EEF8</color>
+    <color name="dmh_text_secondary">#B0AECC</color>
+    <color name="dmh_text_hint">#6B6980</color>
+
+    <!-- Source colours -->
+    <color name="spotify_green">#1DB954</color>
+    <color name="youtube_red">#FF0000</color>
+
+    <!-- System -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+</resources>

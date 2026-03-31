@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.DemonicMusicHost" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/dmh_accent</item>
+        <item name="colorPrimaryVariant">@color/dmh_accent_light</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/dmh_accent_light</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSurface">@color/dmh_surface</item>
+        <item name="colorOnSurface">@color/dmh_text_primary</item>
+        <item name="android:colorBackground">@color/dmh_bg</item>
+        <item name="android:windowBackground">@color/dmh_bg</item>
+        <item name="android:statusBarColor">@color/dmh_surface</item>
+        <item name="android:navigationBarColor">@color/dmh_bg</item>
+        <item name="textInputStyle">@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox</item>
+    </style>
+</resources>
