@@ -1,5 +1,7 @@
 package com.demonicmusichost.app.ui.session
 
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -7,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -42,6 +45,13 @@ class AddSongBottomSheet : BottomSheetDialogFragment() {
     private lateinit var resultsAdapter: SearchResultsAdapter
     private var currentSource = "spotify"
 
+    // Local audio file picker — registered before onStart()
+    private val filePicker = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) handleLocalFile(uri)
+    }
+
     private val httpClient: OkHttpClient by lazy {
         val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
             override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
@@ -75,13 +85,16 @@ class AddSongBottomSheet : BottomSheetDialogFragment() {
             layoutManager = LinearLayoutManager(requireContext())
         }
 
-        // Default tab
-        updateSourceTab("spotify")
+        updateSourceUi("spotify")
 
         binding.tabSource.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
-                currentSource = if (tab.position == 0) "spotify" else "youtube"
-                updateSourceTab(currentSource)
+                currentSource = when (tab.position) {
+                    0 -> "spotify"
+                    1 -> "youtube"
+                    else -> "local"
+                }
+                updateSourceUi(currentSource)
             }
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
@@ -94,13 +107,28 @@ class AddSongBottomSheet : BottomSheetDialogFragment() {
                 doSearch(); true
             } else false
         }
+
+        binding.btnPickLocalFile.setOnClickListener {
+            filePicker.launch("audio/*")
+        }
     }
 
-    private fun updateSourceTab(source: String) {
-        val needsToken = source == "spotify"
+    private fun updateSourceUi(source: String) {
+        val isLocal = source == "local"
+        val isSpotify = source == "spotify"
         val hasToken = PrefsManager.isSpotifyValid()
-        binding.tvNoSpotify.isVisible = needsToken && !hasToken
-        binding.btnSearch.isEnabled = !(needsToken && !hasToken)
+
+        // Show/hide search vs local-pick
+        binding.llSearchBar.isVisible = !isLocal
+        binding.btnSearch.isVisible = !isLocal
+        binding.btnPickLocalFile.isVisible = isLocal
+        binding.rvSearchResults.isVisible = !isLocal
+        binding.tvSearchError.isVisible = false
+        binding.progressSearch.isVisible = false
+
+        // Spotify warning
+        binding.tvNoSpotify.isVisible = isSpotify && !hasToken
+        if (!isLocal) binding.btnSearch.isEnabled = !(isSpotify && !hasToken)
     }
 
     private fun doSearch() {
@@ -155,6 +183,39 @@ class AddSongBottomSheet : BottomSheetDialogFragment() {
                 }
             }
         })
+    }
+
+    private fun handleLocalFile(uri: Uri) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(requireContext(), uri)
+            val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                ?: uri.lastPathSegment?.substringBeforeLast('.') ?: "Unknown"
+            val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: ""
+            val album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) ?: ""
+            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: 0L
+
+            val track = Track(
+                id = uri.toString(),
+                title = title,
+                artist = artist,
+                album = album,
+                duration = duration,
+                source = "local",
+                sourceId = uri.toString(),
+                url = uri.toString()
+            )
+            SocketManager.queueAdd(track)
+            Toast.makeText(requireContext(),
+                getString(R.string.track_added, title), Toast.LENGTH_SHORT).show()
+            dismiss()
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(),
+                getString(R.string.search_error, e.message), Toast.LENGTH_SHORT).show()
+        } finally {
+            retriever.release()
+        }
     }
 
     private fun encode(s: String) = java.net.URLEncoder.encode(s, "UTF-8")

@@ -46,7 +46,12 @@ class SpotifyAuthActivity : AppCompatActivity() {
         layout.addView(progressBar)
         setContentView(layout)
 
-        webView.settings.javaScriptEnabled = true
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true          // required for Spotify login JS
+            useWideViewPort = true
+            loadWithOverviewMode = true
+        }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 progressBar.isVisible = false

@@ -60,6 +60,8 @@
 
     <!-- Add Song / Search -->
     <string name="add_song_title">Song hinzufügen</string>
+    <string name="pick_local_file">📂  Lokale Datei auswählen</string>
+    <string name="local_file_queued">%1$s zur Warteschlange hinzugefügt</string>
     <string name="spotify_not_connected_hint">⚠ Spotify nicht verbunden. Bitte zuerst einloggen.</string>
     <string name="search_hint">Suchen…</string>
     <string name="search">Suchen</string>

@@ -49,6 +49,11 @@
             android:layout_height="wrap_content"
             android:text="YouTube" />
 
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Lokal" />
+
     </com.google.android.material.tabs.TabLayout>
 
     <!-- No-Spotify warning -->
@@ -63,8 +68,22 @@
         android:paddingVertical="4dp"
         android:visibility="gone" />
 
+    <!-- Local file pick (shown only for Lokal tab) -->
+    <Button
+        android:id="@+id/btnPickLocalFile"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="12dp"
+        android:text="@string/pick_local_file"
+        android:backgroundTint="@color/dmh_accent"
+        android:textColor="@color/white"
+        android:visibility="gone" />
+
     <!-- Search bar -->
     <LinearLayout
+        android:id="@+id/llSearchBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -99,7 +118,7 @@
             android:textColor="@color/white"
             android:layout_marginStart="8dp" />
 
-    </LinearLayout>
+    </LinearLayout> <!-- end llSearchBar -->
 
     <!-- Loading -->
     <ProgressBar
