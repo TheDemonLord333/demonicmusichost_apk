@@ -6,7 +6,7 @@ import com.demonicmusichost.app.data.model.Track
 import com.google.gson.Gson
 import io.socket.client.IO
 import io.socket.client.Socket
-import io.socket.emitter.Emitter
+import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -71,27 +71,35 @@ object SocketManager {
     }
 
     private fun connect() {
+        // Trust all certs for self-signed HTTPS during development.
+        // Replace with proper cert pinning before going to production.
+        val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+        })
+        val sslContext = try {
+            SSLContext.getInstance("TLS").also { it.init(null, trustAll, SecureRandom()) }
+        } catch (e: Exception) {
+            Log.w(TAG, "SSL setup warning: ${e.message}")
+            null
+        }
+
+        val okHttpClient = okhttp3.OkHttpClient.Builder().apply {
+            if (sslContext != null) {
+                sslSocketFactory(sslContext.socketFactory, trustAll[0] as X509TrustManager)
+                hostnameVerifier { _, _ -> true }
+            }
+        }.build()
+
         val opts = IO.Options.builder()
             .setTransports(arrayOf("websocket"))
             .setReconnection(true)
             .setReconnectionAttempts(5)
             .setReconnectionDelay(2000)
+            .setCallFactory(okHttpClient)
+            .setWebSocketFactory(okHttpClient)
             .build()
-
-        // Trust all certs for self-signed HTTPS during development.
-        // Remove / replace with proper cert handling in production.
-        try {
-            val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
-                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-            })
-            val sc = SSLContext.getInstance("TLS")
-            sc.init(null, trustAll, SecureRandom())
-            IO.setDefaultSSLContext(sc)
-        } catch (e: Exception) {
-            Log.w(TAG, "SSL setup warning: ${e.message}")
-        }
 
         socket = IO.socket(URI.create(serverUrl), opts).also { s ->
             s.on(Socket.EVENT_CONNECT) {
