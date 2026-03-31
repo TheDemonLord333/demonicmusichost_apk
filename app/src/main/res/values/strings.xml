@@ -57,4 +57,27 @@
     <string name="leave_session_title">Session verlassen?</string>
     <string name="leave_session_message">Du wirst die aktuelle Session verlassen.</string>
     <string name="leave">Verlassen</string>
+
+    <!-- Add Song / Search -->
+    <string name="add_song_title">Song hinzufügen</string>
+    <string name="spotify_not_connected_hint">⚠ Spotify nicht verbunden. Bitte zuerst einloggen.</string>
+    <string name="search_hint">Suchen…</string>
+    <string name="search">Suchen</string>
+    <string name="add_to_queue">Zur Warteschlange hinzufügen</string>
+    <string name="track_added">%1$s hinzugefügt</string>
+    <string name="no_results">Keine Ergebnisse gefunden.</string>
+    <string name="search_error">Fehler: %1$s</string>
+    <string name="btn_add_song">+ Song</string>
+
+    <!-- QR Code Dialog (session) -->
+    <string name="btn_show_qr">QR-Code anzeigen</string>
+    <string name="qr_dialog_title">Session %1$s</string>
+    <string name="qr_loading">QR-Code wird geladen…</string>
+    <string name="qr_load_error">QR-Code konnte nicht geladen werden.</string>
+
+    <!-- Spotify -->
+    <string name="spotify_login">Spotify verbinden</string>
+    <string name="spotify_connected">✓ Spotify verbunden</string>
+    <string name="spotify_logout">Abmelden</string>
+    <string name="spotify_auth_title">Spotify Login</string>
 </resources>

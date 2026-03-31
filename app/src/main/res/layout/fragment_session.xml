@@ -13,7 +13,7 @@
         android:layout_height="56dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingHorizontal="16dp"
+        android:paddingHorizontal="12dp"
         android:background="@color/dmh_surface"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent">
@@ -27,15 +27,14 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
-        <!-- Session code + copy -->
         <TextView
             android:id="@+id/tvSessionCode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/dmh_text_secondary"
-            android:textSize="13sp"
+            android:textSize="12sp"
             android:letterSpacing="0.1"
-            android:layout_marginEnd="4dp" />
+            android:layout_marginEnd="2dp" />
 
         <ImageButton
             android:id="@+id/btnCopyCode"
@@ -44,7 +43,18 @@
             android:src="@drawable/ic_copy"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/btn_copy_code"
+            app:tint="@color/dmh_text_secondary" />
+
+        <!-- QR Code button -->
+        <ImageButton
+            android:id="@+id/btnShowQr"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_qr_scan"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/btn_show_qr"
             app:tint="@color/dmh_text_secondary"
+            android:layout_marginStart="2dp"
             android:layout_marginEnd="8dp" />
 
         <Button
@@ -53,7 +63,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/btn_leave"
-            android:textColor="@color/dmh_accent" />
+            android:textColor="@color/dmh_accent"
+            android:minWidth="0dp"
+            android:paddingHorizontal="8dp" />
 
     </LinearLayout>
 
@@ -104,7 +116,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/now_playing"
-                        android:textSize="12sp"
+                        android:textSize="11sp"
                         android:textColor="@color/dmh_text_hint"
                         android:letterSpacing="0.12"
                         android:textAllCaps="true"
@@ -196,7 +208,7 @@
 
                     </LinearLayout>
 
-                    <!-- Playback controls (host only) -->
+                    <!-- Host playback controls -->
                     <LinearLayout
                         android:id="@+id/layoutPlayback"
                         android:layout_width="match_parent"
@@ -271,7 +283,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/session_settings"
-                        android:textSize="14sp"
+                        android:textSize="11sp"
                         android:textColor="@color/dmh_text_secondary"
                         android:textAllCaps="true"
                         android:letterSpacing="0.1"
@@ -343,6 +355,7 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
+                    <!-- Queue header -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -359,7 +372,17 @@
                             android:textColor="@color/dmh_text_primary"
                             android:textStyle="bold" />
 
-                        <!-- Open in browser button -->
+                        <!-- Add Song button -->
+                        <Button
+                            android:id="@+id/btnAddSong"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/btn_add_song"
+                            android:textColor="@color/dmh_accent"
+                            android:textSize="12sp"
+                            android:visibility="gone" />
+
                         <Button
                             android:id="@+id/btnOpenWeb"
                             style="@style/Widget.Material3.Button.TextButton"

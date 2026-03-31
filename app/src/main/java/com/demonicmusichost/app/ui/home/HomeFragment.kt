@@ -1,6 +1,7 @@
 package com.demonicmusichost.app.ui.home
 
 import android.app.AlertDialog
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -17,8 +18,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import com.demonicmusichost.app.R
+import com.demonicmusichost.app.data.PrefsManager
 import com.demonicmusichost.app.databinding.FragmentHomeBinding
 import com.demonicmusichost.app.ui.scanner.QRScannerActivity
+import com.demonicmusichost.app.ui.spotify.SpotifyAuthActivity
 import kotlinx.coroutines.launch
 
 class HomeFragment : Fragment() {
@@ -34,12 +37,22 @@ class HomeFragment : Fragment() {
     ) { result ->
         val code = result.data?.getStringExtra(QRScannerActivity.EXTRA_RESULT_CODE)
         if (!code.isNullOrBlank()) {
-            // Populate the session code field automatically
             binding.etSessionCode.setText(code)
             Toast.makeText(requireContext(),
                 getString(R.string.qr_code_scanned, code),
                 Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // Spotify OAuth launcher
+    private val spotifyAuthLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            Toast.makeText(requireContext(),
+                getString(R.string.spotify_connected), Toast.LENGTH_SHORT).show()
+        }
+        updateSpotifyUi()
     }
 
     override fun onCreateView(
@@ -56,31 +69,38 @@ class HomeFragment : Fragment() {
 
         setupListeners()
         observeState()
+        updateSpotifyUi()
     }
 
     private fun setupListeners() {
-        // Create session
         binding.btnCreateSession.setOnClickListener {
             val username = binding.etCreateUsername.text.toString()
             viewModel.createSession(username)
         }
 
-        // Join session
         binding.btnJoinSession.setOnClickListener {
             val username = binding.etJoinUsername.text.toString()
             val code = binding.etSessionCode.text.toString()
             viewModel.joinSession(username, code)
         }
 
-        // QR scanner button — next to session code field
         binding.btnScanQr.setOnClickListener {
             val intent = Intent(requireContext(), QRScannerActivity::class.java)
             qrScannerLauncher.launch(intent)
         }
 
-        // Server settings
         binding.btnServerSettings.setOnClickListener {
             showServerSettingsDialog()
+        }
+
+        binding.btnSpotifyLogin.setOnClickListener {
+            val intent = Intent(requireContext(), SpotifyAuthActivity::class.java)
+            spotifyAuthLauncher.launch(intent)
+        }
+
+        binding.btnSpotifyLogout.setOnClickListener {
+            PrefsManager.clearSpotify()
+            updateSpotifyUi()
         }
     }
 
@@ -112,6 +132,16 @@ class HomeFragment : Fragment() {
                     binding.tvServerUrl.text = getString(R.string.server_label, url)
                 }
             }
+        }
+    }
+
+    private fun updateSpotifyUi() {
+        val connected = PrefsManager.isSpotifyValid()
+        binding.btnSpotifyLogin.isVisible = !connected
+        binding.btnSpotifyLogout.isVisible = connected
+        binding.tvSpotifyStatus.isVisible = connected
+        if (connected) {
+            binding.tvSpotifyStatus.text = getString(R.string.spotify_connected)
         }
     }
 

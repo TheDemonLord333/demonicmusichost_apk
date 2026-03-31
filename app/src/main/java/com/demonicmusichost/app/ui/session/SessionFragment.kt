@@ -4,10 +4,14 @@ import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -17,13 +21,25 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.bumptech.glide.Glide
 import com.demonicmusichost.app.R
+import com.demonicmusichost.app.data.PrefsManager
 import com.demonicmusichost.app.data.model.SessionState
 import com.demonicmusichost.app.data.model.Track
 import com.demonicmusichost.app.databinding.FragmentSessionBinding
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.IOException
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 class SessionFragment : Fragment() {
 
@@ -34,9 +50,27 @@ class SessionFragment : Fragment() {
     private lateinit var queueAdapter: QueueAdapter
     private lateinit var participantAdapter: ParticipantAdapter
 
+    private val httpClient: OkHttpClient by lazy {
+        val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
+            override fun checkServerTrusted(c: Array<X509Certificate>, a: String) {}
+        })
+        val sc = try {
+            SSLContext.getInstance("TLS").also { it.init(null, trustAll, SecureRandom()) }
+        } catch (e: Exception) { null }
+        OkHttpClient.Builder().apply {
+            if (sc != null) {
+                sslSocketFactory(sc.socketFactory, trustAll[0] as X509TrustManager)
+                hostnameVerifier { _, _ -> true }
+            }
+            connectTimeout(10, TimeUnit.SECONDS)
+            readTimeout(10, TimeUnit.SECONDS)
+        }.build()
+    }
+
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
+        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
         _binding = FragmentSessionBinding.inflate(inflater, container, false)
         return binding.root
@@ -49,25 +83,18 @@ class SessionFragment : Fragment() {
         observeState()
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-
     private fun setupAdapters() {
-        queueAdapter = QueueAdapter { index ->
-            viewModel.removeTrack(index)
-        }
+        queueAdapter = QueueAdapter { index -> viewModel.removeTrack(index) }
         binding.rvQueue.apply {
             adapter = queueAdapter
             layoutManager = LinearLayoutManager(requireContext())
         }
-
         participantAdapter = ParticipantAdapter { participant ->
             if (viewModel.isHost.value) {
                 AlertDialog.Builder(requireContext())
                     .setTitle(R.string.kick_confirm_title)
                     .setMessage(getString(R.string.kick_confirm_message, participant.username))
-                    .setPositiveButton(R.string.kick) { _, _ ->
-                        viewModel.kickParticipant(participant.socketId)
-                    }
+                    .setPositiveButton(R.string.kick) { _, _ -> viewModel.kickParticipant(participant.socketId) }
                     .setNegativeButton(R.string.cancel, null)
                     .show()
             }
@@ -105,6 +132,17 @@ class SessionFragment : Fragment() {
             Toast.makeText(requireContext(), getString(R.string.code_copied, code), Toast.LENGTH_SHORT).show()
         }
 
+        // QR code button
+        binding.btnShowQr.setOnClickListener {
+            val code = viewModel.mySessionId.value ?: return@setOnClickListener
+            showQrCodeDialog(code)
+        }
+
+        // Add Song button
+        binding.btnAddSong.setOnClickListener {
+            AddSongBottomSheet().show(childFragmentManager, AddSongBottomSheet.TAG)
+        }
+
         binding.switchAllowJoin.setOnCheckedChangeListener { _, checked ->
             if (viewModel.isHost.value) viewModel.updateAllowJoin(checked)
         }
@@ -127,7 +165,6 @@ class SessionFragment : Fragment() {
                 }
             }
         }
-
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.isHost.collect { host ->
@@ -136,10 +173,10 @@ class SessionFragment : Fragment() {
                     binding.layoutHostControls.isVisible = host
                     binding.layoutPlayback.isVisible = host
                     binding.layoutGuestInfo.isVisible = !host
+                    // Guests can add songs if allowGuestAdd is true (updated in renderState)
                 }
             }
         }
-
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.mySessionId.collect { id ->
@@ -147,7 +184,6 @@ class SessionFragment : Fragment() {
                 }
             }
         }
-
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.toastMessage.collect { msg ->
@@ -155,7 +191,6 @@ class SessionFragment : Fragment() {
                 }
             }
         }
-
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.navigateHome.collect {
@@ -163,7 +198,6 @@ class SessionFragment : Fragment() {
                 }
             }
         }
-
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.connected.collect { connected ->
@@ -173,28 +207,26 @@ class SessionFragment : Fragment() {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-
     private fun renderState(state: SessionState) {
-        // Queue
         queueAdapter.currentTrackIndex = state.currentTrackIndex
         queueAdapter.submitList(state.queue)
         binding.tvQueueEmpty.isVisible = state.queue.isEmpty()
 
-        // Participant list
         participantAdapter.submitList(state.participants)
         binding.tvParticipantCount.text =
             getString(R.string.participant_count, state.participants.size)
 
-        // Now playing
+        // Show add song button: host always, guests only if allowGuestAdd
+        val canAdd = viewModel.isHost.value || state.settings.allowGuestAdd
+        binding.btnAddSong.isVisible = canAdd
+
         val currentTrack: Track? = state.queue.getOrNull(state.currentTrackIndex)
         if (currentTrack != null) {
             binding.tvNpTitle.text = currentTrack.title.ifBlank { "—" }
             binding.tvNpArtist.text = currentTrack.artist.ifBlank { currentTrack.addedBy }
             binding.tvNpAddedBy.text = getString(R.string.added_by, currentTrack.addedBy)
-
             if (currentTrack.thumbnail.isNotBlank()) {
-                Glide.with(binding.ivNpThumbnail)
+                com.bumptech.glide.Glide.with(binding.ivNpThumbnail)
                     .load(currentTrack.thumbnail)
                     .placeholder(R.drawable.ic_music_note)
                     .into(binding.ivNpThumbnail)
@@ -208,12 +240,10 @@ class SessionFragment : Fragment() {
             binding.ivNpThumbnail.setImageResource(R.drawable.ic_music_note)
         }
 
-        // Play/Pause icon
         binding.btnPlayPause.setImageResource(
             if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
         )
 
-        // Progress
         if (currentTrack != null && currentTrack.duration > 0) {
             val progress = ((state.position.toFloat() / currentTrack.duration) * 100).toInt()
             binding.progressPlayback.progress = progress.coerceIn(0, 100)
@@ -238,6 +268,53 @@ class SessionFragment : Fragment() {
         }
     }
 
+    // ─── QR Code Dialog ───────────────────────────────────────────────────────────
+
+    private fun showQrCodeDialog(sessionCode: String) {
+        val dialogView = LayoutInflater.from(requireContext())
+            .inflate(R.layout.dialog_qr_code, null)
+        val ivQr = dialogView.findViewById<ImageView>(R.id.ivQrCode)
+        val tvUrl = dialogView.findViewById<TextView>(R.id.tvQrUrl)
+        val tvLoading = dialogView.findViewById<TextView>(R.id.tvQrLoading)
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(getString(R.string.qr_dialog_title, sessionCode))
+            .setView(dialogView)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val url = "${PrefsManager.serverUrl}/api/session/$sessionCode/qr"
+                    val request = Request.Builder().url(url).build()
+                    httpClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) return@use null
+                        val body = response.body?.string() ?: return@use null
+                        Gson().fromJson(body, JsonObject::class.java)
+                    }
+                }
+                if (!dialog.isShowing) return@launch
+                if (result == null) {
+                    tvLoading.text = getString(R.string.qr_load_error)
+                    return@launch
+                }
+                val dataUrl = result.get("dataUrl")?.asString ?: ""
+                val joinUrl = result.get("joinUrl")?.asString ?: ""
+                val base64 = dataUrl.substringAfter("base64,")
+                val bytes = Base64.decode(base64, Base64.DEFAULT)
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                tvLoading.isVisible = false
+                ivQr.setImageBitmap(bitmap)
+                ivQr.isVisible = true
+                tvUrl.text = joinUrl
+                tvUrl.isVisible = true
+            } catch (e: IOException) {
+                if (dialog.isShowing) tvLoading.text = getString(R.string.qr_load_error)
+            }
+        }
+    }
+
     private fun formatMs(ms: Long): String {
         val min = TimeUnit.MILLISECONDS.toMinutes(ms)
         val sec = TimeUnit.MILLISECONDS.toSeconds(ms) % 60
@@ -246,11 +323,9 @@ class SessionFragment : Fragment() {
 
     private fun openInBrowser(url: String) {
         try {
-            val intent = android.content.Intent(
-                android.content.Intent.ACTION_VIEW,
-                android.net.Uri.parse(url)
-            )
-            startActivity(intent)
+            startActivity(android.content.Intent(
+                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)
+            ))
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "Browser nicht gefunden.", Toast.LENGTH_SHORT).show()
         }

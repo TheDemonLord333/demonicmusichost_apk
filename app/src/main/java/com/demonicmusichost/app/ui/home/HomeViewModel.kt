@@ -2,6 +2,7 @@ package com.demonicmusichost.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.demonicmusichost.app.data.PrefsManager
 import com.demonicmusichost.app.data.SocketManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,11 +14,10 @@ class HomeViewModel : ViewModel() {
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Idle)
     val uiState: StateFlow<HomeUiState> = _uiState
 
-    private val _serverUrl = MutableStateFlow(DEFAULT_SERVER_URL)
+    private val _serverUrl = MutableStateFlow(PrefsManager.serverUrl)
     val serverUrl: StateFlow<String> = _serverUrl
 
     init {
-        // Watch for session creation/join → navigate to session screen
         SocketManager.mySessionId
             .onEach { sessionId ->
                 if (sessionId != null) {
@@ -34,8 +34,10 @@ class HomeViewModel : ViewModel() {
     }
 
     fun updateServerUrl(url: String) {
-        _serverUrl.value = url
-        SocketManager.init(url)
+        val trimmed = url.trim().trimEnd('/')
+        PrefsManager.serverUrl = trimmed
+        _serverUrl.value = trimmed
+        SocketManager.init(trimmed)
     }
 
     fun createSession(username: String) {
@@ -44,7 +46,7 @@ class HomeViewModel : ViewModel() {
             return
         }
         _uiState.value = HomeUiState.Loading
-        SocketManager.init(_serverUrl.value)
+        SocketManager.init(PrefsManager.serverUrl)
         SocketManager.createSession(username.trim())
     }
 
@@ -58,7 +60,7 @@ class HomeViewModel : ViewModel() {
             return
         }
         _uiState.value = HomeUiState.Loading
-        SocketManager.init(_serverUrl.value)
+        SocketManager.init(PrefsManager.serverUrl)
         SocketManager.joinSession(code.trim(), username.trim())
     }
 
@@ -66,11 +68,6 @@ class HomeViewModel : ViewModel() {
         if (_uiState.value is HomeUiState.Error) {
             _uiState.value = HomeUiState.Idle
         }
-    }
-
-    companion object {
-        // Default server — user can change this in the settings dialog
-        const val DEFAULT_SERVER_URL = "http://10.0.2.2:3001"
     }
 }
 
