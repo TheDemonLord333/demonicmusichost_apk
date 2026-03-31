@@ -107,7 +107,6 @@ class SessionFragment : Fragment() {
         try { setupExoPlayer() } catch (e: Exception) {
             android.util.Log.e("SessionFragment", "ExoPlayer init failed: ${e.message}")
         }
-        setupSpotifyPlayer()
         setupAdapters()
         setupListeners()
         observeState()
@@ -156,14 +155,25 @@ class SessionFragment : Fragment() {
         }
     }
 
-    private fun setupSpotifyPlayer() {
-        spotifyPlayer = SpotifyWebPlayer(
+    /**
+     * Returns the SpotifyWebPlayer, creating and initialising it on first call.
+     * Only called when we're the host and a Spotify track actually needs to play.
+     */
+    private fun getOrCreateSpotifyPlayer(): SpotifyWebPlayer {
+        return spotifyPlayer ?: SpotifyWebPlayer(
             context = requireContext(),
             onReady = {
                 android.util.Log.i("SessionFragment", "Spotify SDK ready")
             },
             onError = { msg ->
-                Toast.makeText(requireContext(), "Spotify: $msg", Toast.LENGTH_LONG).show()
+                // "initialization_error" fires before any track is queued and is expected
+                // on devices/accounts that can't use the SDK — log silently, don't spam the user.
+                val isInitError = msg.startsWith("Init error") || msg.startsWith("Auth error")
+                if (isInitError) {
+                    android.util.Log.w("SessionFragment", "Spotify SDK: $msg")
+                } else {
+                    Toast.makeText(requireContext(), "Spotify: $msg", Toast.LENGTH_LONG).show()
+                }
             },
             onProgressUpdate = { positionMs ->
                 SocketManager.reportProgress(positionMs)
@@ -171,7 +181,7 @@ class SessionFragment : Fragment() {
             onTrackEnded = {
                 SocketManager.reportTrackEnded()
             }
-        ).also { it.init() }
+        ).also { sp -> spotifyPlayer = sp; sp.init() }
     }
 
     private fun startProgressReporting() {
@@ -225,22 +235,22 @@ class SessionFragment : Fragment() {
 
                 "spotify" -> {
                     // Full-track playback via Spotify Web Playback SDK (Spotify Premium required).
-                    // The SDK runs in a hidden WebView; we send a play command via the Web API.
-                    val sp = spotifyPlayer
+                    // Only attempt if the user has a valid Spotify token; otherwise fall back
+                    // to the 30-second preview so guests without Premium still hear something.
                     val uri = currentTrack.spotifyUri
-                    if (sp != null && !uri.isNullOrBlank()) {
+                    if (!uri.isNullOrBlank() && PrefsManager.isSpotifyValid()) {
                         // Stop ExoPlayer if it was playing something before
                         if (p.isPlaying) p.stop()
-                        sp.playUri(uri)
+                        getOrCreateSpotifyPlayer().playUri(uri)
                     } else {
-                        // Fallback: 30-second preview if no SDK or no URI
+                        // Fallback: 30-second preview (no token or no URI)
                         val preview = currentTrack.previewUrl
                         if (!preview.isNullOrBlank()) {
                             loadMedia(p, preview, state.isPlaying)
                         } else {
                             Toast.makeText(
                                 requireContext(),
-                                "Spotify: Track kann nicht abgespielt werden.",
+                                "Spotify: Kein Token. Bitte in der App anmelden.",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -274,6 +284,7 @@ class SessionFragment : Fragment() {
 
         // Same track — sync play/pause state
         if (currentTrack.source == "spotify") {
+            // Only touch the SDK player if it already exists; don't create it just to pause
             val sp = spotifyPlayer ?: return
             if (state.isPlaying) sp.resume() else sp.pause()
         } else {
