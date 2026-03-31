@@ -85,7 +85,9 @@ class SessionFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setupExoPlayer()
+        try { setupExoPlayer() } catch (e: Exception) {
+            android.util.Log.e("SessionFragment", "ExoPlayer init failed: ${e.message}")
+        }
         setupAdapters()
         setupListeners()
         observeState()

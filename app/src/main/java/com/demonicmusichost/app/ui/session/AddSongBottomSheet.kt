@@ -83,6 +83,11 @@ class AddSongBottomSheet : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         resultsAdapter = SearchResultsAdapter { track ->
+            if (!SocketManager.connected.value) {
+                Toast.makeText(requireContext(),
+                    "Keine Verbindung zum Server.", Toast.LENGTH_SHORT).show()
+                return@SearchResultsAdapter
+            }
             SocketManager.queueAdd(track)
             Toast.makeText(requireContext(),
                 getString(R.string.track_added, track.title), Toast.LENGTH_SHORT).show()

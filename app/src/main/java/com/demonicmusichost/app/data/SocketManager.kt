@@ -162,63 +162,50 @@ object SocketManager {
 
         s.on("queue_updated") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
-            _sessionState.value?.let { current ->
-                val updated = current.copy(
-                    queue = parseTrackList(data),
-                    currentTrackIndex = data.optInt("currentTrackIndex", current.currentTrackIndex)
-                )
-                _sessionState.tryEmit(updated)
-            }
+            val current = _sessionState.value ?: SessionState()
+            _sessionState.tryEmit(current.copy(
+                queue = parseTrackList(data),
+                currentTrackIndex = data.optInt("currentTrackIndex", current.currentTrackIndex)
+            ))
         }
 
         s.on("playback_updated") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
-            _sessionState.value?.let { current ->
-                val updated = current.copy(
-                    currentTrackIndex = data.optInt("currentTrackIndex", current.currentTrackIndex),
-                    isPlaying = data.optBoolean("isPlaying", current.isPlaying),
-                    position = data.optLong("position", current.position)
-                )
-                _sessionState.tryEmit(updated)
-            }
+            val current = _sessionState.value ?: SessionState()
+            _sessionState.tryEmit(current.copy(
+                currentTrackIndex = data.optInt("currentTrackIndex", current.currentTrackIndex),
+                isPlaying = data.optBoolean("isPlaying", current.isPlaying),
+                position = data.optLong("position", current.position)
+            ))
         }
 
         s.on("participant_joined") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
-            _sessionState.value?.let { current ->
-                val participants = parseParticipantList(data)
-                _sessionState.tryEmit(current.copy(participants = participants))
-            }
+            val current = _sessionState.value ?: SessionState()
+            _sessionState.tryEmit(current.copy(participants = parseParticipantList(data)))
         }
 
         s.on("participant_left") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
-            _sessionState.value?.let { current ->
-                val participants = parseParticipantList(data)
-                _sessionState.tryEmit(current.copy(participants = participants))
-            }
+            val current = _sessionState.value ?: SessionState()
+            _sessionState.tryEmit(current.copy(participants = parseParticipantList(data)))
         }
 
         s.on("settings_updated") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
-            _sessionState.value?.let { current ->
-                val settingsJson = data.optJSONObject("settings")
-                if (settingsJson != null) {
-                    val settings = com.demonicmusichost.app.data.model.SessionSettings(
-                        allowJoin = settingsJson.optBoolean("allowJoin", true),
-                        allowGuestAdd = settingsJson.optBoolean("allowGuestAdd", true)
-                    )
-                    _sessionState.tryEmit(current.copy(settings = settings))
-                }
-            }
+            val current = _sessionState.value ?: SessionState()
+            val settingsJson = data.optJSONObject("settings") ?: return@on
+            val settings = com.demonicmusichost.app.data.model.SessionSettings(
+                allowJoin = settingsJson.optBoolean("allowJoin", true),
+                allowGuestAdd = settingsJson.optBoolean("allowGuestAdd", true)
+            )
+            _sessionState.tryEmit(current.copy(settings = settings))
         }
 
         s.on("host_transferred") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
-            _sessionState.value?.let { current ->
-                val participants = parseParticipantList(data)
-                _sessionState.tryEmit(current.copy(participants = participants))
-            }
+            val current = _sessionState.value ?: SessionState()
+            _sessionState.tryEmit(current.copy(participants = parseParticipantList(data)))
         }
 
         s.on("kicked") { args ->
